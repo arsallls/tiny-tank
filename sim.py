@@ -198,23 +198,25 @@ def episode(rng, n):
 def main(a):
     import time
     rng = np.random.default_rng(a.seed)
-    eps, t0 = [], time.time()
+    # straight into a preallocated array: accumulating 32M tokens as nested
+    # Python lists and then flattening them costs more than generating them
+    arr = np.empty((a.episodes, a.ep_len + 1), dtype=np.uint16)
+    t0 = time.time()
     for i in range(a.episodes):
-        eps.append(episode(rng, a.ep_len))
-        if (i + 1) % 500 == 0 or i + 1 == a.episodes:
-            done = (i + 1) / a.episodes
+        arr[i] = episode(rng, a.ep_len)
+        if (i + 1) % 250 == 0 or i + 1 == a.episodes:
             el = time.time() - t0
+            left = el / ((i + 1) / a.episodes) - el
             print(f"\r  {i + 1}/{a.episodes} episodes  {el:.0f}s elapsed, "
-                  f"~{el / done - el:.0f}s left", end="", flush=True)
+                  f"~{left:.0f}s left   ", end="", flush=True)
     print()
     # hold out whole episodes: a mid-episode split would leak the fish's state
     # across the boundary, the same way a mid-movie split leaks context
-    cut = max(1, int(len(eps) * 0.1))
+    cut = max(1, int(a.episodes * 0.1))
     os.makedirs(a.out, exist_ok=True)
-    for name, part in (("val", eps[:cut]), ("train", eps[cut:])):
-        arr = np.array([t for e in part for t in e], dtype=np.uint16)
-        arr.tofile(os.path.join(a.out, f"{name}.bin"))
-        print(f"{name}: {len(part)} episodes, {len(arr):,} tokens")
+    for name, part in (("val", arr[:cut]), ("train", arr[cut:])):
+        part.ravel().tofile(os.path.join(a.out, f"{name}.bin"))
+        print(f"{name}: {len(part)} episodes, {part.size:,} tokens")
     with open(os.path.join(a.out, "meta.pkl"), "wb") as f:
         pickle.dump({"vocab": VOCAB, "ep_len": a.ep_len, "seed": a.seed}, f)
     print(f"vocab: {V}")
