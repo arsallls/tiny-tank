@@ -13,7 +13,7 @@ behavior the way a hand-written copy of the policy would.
   python3 sim.py --oracle         # irreducible entropy + oracle probe curves
   python3 sim.py                  # write data/{train,val}.bin + meta.pkl
 """
-import argparse, os, pickle
+import argparse, math, os, pickle
 from collections import deque
 
 import numpy as np
@@ -32,6 +32,45 @@ V = len(VOCAB)
 TAP_WINDOW = 300        # ticks a tap still counts toward habituation
 DAY = 4000              # circadian period
 P_STIM = 0.007          # per-tick chance any stimulus arrives
+
+
+def _menu(**w):
+    """A weight dict -> a normalized distribution over the whole vocab.
+
+    Every menu is static, so they are built once here instead of per tick -
+    rebuilding them from dicts was over half the generator's runtime.
+    """
+    a = np.zeros(V)
+    for tok, v in w.items():
+        a[STOI[tok]] = v
+    return a / a.sum()
+
+
+M_FEAR = _menu(HIDE=4, DART_L=2, DART_R=2, DART_D=3, SINK=1, SPLASH=0.5)
+_IDLE = dict(DRIFT_L=3, DRIFT_R=3, DRIFT_U=1.5, DRIFT_D=1.5,
+             HOVER=3, TURN=1.5, BUBBLE=0.8, CIRCLE=0.7)
+M_IDLE = _menu(**_IDLE)
+M_FEED = _menu(ORIENT=2, DART_U=3, DART_L=1, DART_R=1, CHOMP=4, NIBBLE=2, GULP=1.5)
+M_PECK = _menu(ORIENT=3, NIBBLE=3, DRIFT_U=2, CHOMP=1, TURN=1, BUBBLE=0.5)
+M_FULL = _menu(**{**_IDLE, "ORIENT": 2, "DRIFT_U": 2.5, "TURN": 2.5})
+M_HUNGRY = _menu(SCAN=4, SURFACE=2, DRIFT_U=2, DRIFT_L=1.5, DRIFT_R=1.5,
+                 TURN=1, BUBBLE=0.6)
+M_SLEEPY = _menu(HOVER=5, SINK=3, DRIFT_D=2, BUBBLE=0.4)
+M_BORED = _menu(CIRCLE=4, TURN=3, BUBBLE=1.5, DRIFT_L=1.5, DRIFT_R=1.5)
+
+
+def _stim(light_on):
+    a = np.zeros(V)
+    a[STOI["<FOOD>"]] = P_STIM * 0.45
+    a[STOI["<TAP>"]] = P_STIM * 0.25
+    a[STOI["<HAND>"]] = P_STIM * 0.15
+    a[STOI["<LIGHT_OFF>" if light_on else "<LIGHT_ON>"]] = P_STIM * 0.15
+    return a
+
+
+S_LIGHT_ON, S_LIGHT_OFF = _stim(True), _stim(False)
+S_BURST = np.zeros(V)
+S_BURST[STOI["<TAP>"]] = 0.6
 
 
 class Tank:
@@ -53,10 +92,10 @@ class Tank:
         # 0.15 not 0.45 - a steeper decay saturates to zero fear by the 4th
         # tap, which an n-gram matches by just detecting a recent tap. The
         # graded curve is what forces the model to actually count.
-        return self.startle * float(np.exp(-0.15 * len(self.taps)))
+        return self.startle * math.exp(-0.15 * len(self.taps))
 
     def sleepy(self):
-        return np.sin(2 * np.pi * self.t / DAY) < -0.7
+        return math.sin(2 * math.pi * self.t / DAY) < -0.7
 
     def current_mood(self):
         if self.fear > 0.50:
@@ -71,44 +110,31 @@ class Tank:
             return "CONTENT"
         return None
 
-    FEAR_MENU = {"HIDE": 4, "DART_L": 2, "DART_R": 2, "DART_D": 3,
-                 "SINK": 1, "SPLASH": 0.5}
-    IDLE_MENU = {"DRIFT_L": 3, "DRIFT_R": 3, "DRIFT_U": 1.5, "DRIFT_D": 1.5,
-                 "HOVER": 3, "TURN": 1.5, "BUBBLE": 0.8, "CIRCLE": 0.7}
-
     def menu(self):
-        """Weights over behavior tokens for the un-startled fish."""
+        """The un-startled fish's behavior distribution (a normalized array)."""
         if self.food:
             # three tiers, because a full fish that ignores food entirely reads
             # as a broken demo: clicking Feed must always do something visible
             if self.hunger > 0.25:
-                return {"ORIENT": 2, "DART_U": 3, "DART_L": 1, "DART_R": 1,
-                        "CHOMP": 4, "NIBBLE": 2, "GULP": 1.5}
+                return M_FEED
             if self.hunger > 0.08:
-                return {"ORIENT": 3, "NIBBLE": 3, "DRIFT_U": 2,
-                        "CHOMP": 1, "TURN": 1, "BUBBLE": 0.5}
-            return {**self.IDLE_MENU, "ORIENT": 2, "DRIFT_U": 2.5, "TURN": 2.5}
+                return M_PECK
+            return M_FULL
         if self.hunger > 0.6:
-            return {"SCAN": 4, "SURFACE": 2, "DRIFT_U": 2, "DRIFT_L": 1.5,
-                    "DRIFT_R": 1.5, "TURN": 1, "BUBBLE": 0.6}
+            return M_HUNGRY
         if not self.light or self.sleepy():
-            return {"HOVER": 5, "SINK": 3, "DRIFT_D": 2, "BUBBLE": 0.4}
+            return M_SLEEPY
         if self.boredom > 250:
-            return {"CIRCLE": 4, "TURN": 3, "BUBBLE": 1.5,
-                    "DRIFT_L": 1.5, "DRIFT_R": 1.5}
-        return self.IDLE_MENU
+            return M_BORED
+        return M_IDLE
 
     def dist(self):
         """Exact next-token distribution. Pure - mutates nothing."""
-        p = np.zeros(V)
         if self.burst:
-            p[STOI["<TAP>"]] = 0.6
+            p = S_BURST.copy()
             rest = 0.4
         else:
-            p[STOI["<FOOD>"]] = P_STIM * 0.45
-            p[STOI["<TAP>"]] = P_STIM * 0.25
-            p[STOI["<HAND>"]] = P_STIM * 0.15
-            p[STOI["<LIGHT_OFF>" if self.light else "<LIGHT_ON>"]] = P_STIM * 0.15
+            p = (S_LIGHT_ON if self.light else S_LIGHT_OFF).copy()
             rest = 1.0 - P_STIM
 
         m = self.current_mood()
@@ -117,12 +143,7 @@ class Tank:
             return p
 
         f = min(1.0, self.fear)
-        for menu, w in ((self.FEAR_MENU, rest * f), (self.menu(), rest * (1 - f))):
-            if w <= 0:
-                continue
-            tot = sum(menu.values())
-            for tok, v in menu.items():
-                p[STOI[tok]] += w * v / tot
+        p += (rest * f) * M_FEAR + (rest * (1.0 - f)) * self.menu()
         return p
 
     def apply(self, tok):
@@ -175,8 +196,17 @@ def episode(rng, n):
 
 
 def main(a):
+    import time
     rng = np.random.default_rng(a.seed)
-    eps = [episode(rng, a.ep_len) for _ in range(a.episodes)]
+    eps, t0 = [], time.time()
+    for i in range(a.episodes):
+        eps.append(episode(rng, a.ep_len))
+        if (i + 1) % 500 == 0 or i + 1 == a.episodes:
+            done = (i + 1) / a.episodes
+            el = time.time() - t0
+            print(f"\r  {i + 1}/{a.episodes} episodes  {el:.0f}s elapsed, "
+                  f"~{el / done - el:.0f}s left", end="", flush=True)
+    print()
     # hold out whole episodes: a mid-episode split would leak the fish's state
     # across the boundary, the same way a mid-movie split leaks context
     cut = max(1, int(len(eps) * 0.1))
