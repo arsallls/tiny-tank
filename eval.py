@@ -4,7 +4,8 @@ Run this BEFORE training anything. If a 5-gram already tracks the habituation
 and hunger curves, the simulator has no long-range structure and a transformer
 is pointless - fix sim.py, not the model.
 
-Every model here is just a function ctx(list[int]) -> probs(32,), so the
+Every model is a function (ctx, pos) -> probs(32,) - pos lets an array-backed
+oracle index itself; count-based models ignore it - so the
 transformer plugs into the same probes later.
 
   python3 eval.py                      # n-gram baselines
@@ -82,7 +83,7 @@ def nll(predict, data, order, n=20000, seed=0):
     pos = rng.integers(lo, len(data) - 1, size=n)
     tot = 0.0
     for i in pos:
-        p = predict(data[i - lo:i].tolist())
+        p = predict(data[i - lo:i].tolist(), int(i))
         tot -= np.log2(max(p[int(data[i])], 1e-12))
     return tot / n
 
@@ -101,7 +102,7 @@ def probe_habituation(predict, data, stoi, itos_fear, n_per=400, seed=0):
         b = 1 if k <= 1 else (2 if k <= 3 else (3 if k <= 8 else (4 if k <= 15 else 5)))
         if len(buckets[b]) >= n_per:
             continue
-        p = predict(data[i - 512:i + 1].tolist())
+        p = predict(data[i - 512:i + 1].tolist(), int(i) + 1)
         buckets[b].append(float(p[itos_fear].sum()))
         if all(len(buckets[j]) >= n_per for j in range(1, 6)):
             break
@@ -123,7 +124,7 @@ def probe_hunger(predict, data, stoi, n_per=400, seed=0):
         b = 1 if gap < 100 else (2 if gap < 250 else (3 if gap < 500 else 4))
         if len(buckets[b]) >= n_per:
             continue
-        p = predict(data[i - 512:i + 1].tolist())
+        p = predict(data[i - 512:i + 1].tolist(), int(i) + 1)
         buckets[b].append(float(p[chomp]))
         if all(len(buckets[j]) >= n_per for j in range(1, 5)):
             break
@@ -153,18 +154,19 @@ def main(a):
     out = {}
     for order in a.orders:
         m = NGram(order, len(vocab)).fit(data["train"])
-        out[f"{order}-gram"] = report(f"{order}-gram", m.predict, data, stoi, fear_ids, order)
+        out[f"{order}-gram"] = report(f"{order}-gram", lambda c, _p, m=m: m.predict(c),
+                                     data, stoi, fear_ids, order)
 
     if a.ckpt:
         import torch
-        from model import Tiny
+        from model import GPT
         dev = "cuda" if torch.cuda.is_available() else "cpu"
         ck = torch.load(a.ckpt, map_location=dev)
-        m = Tiny(ck["cfg"]).to(dev).eval()
+        m = GPT(ck["cfg"]).to(dev).eval()
         m.load_state_dict(ck["model"])
 
         @torch.no_grad()
-        def predict(ctx):
+        def predict(ctx, _pos=None):
             x = torch.tensor(ctx[-m.cfg.block_size:], device=dev)[None]
             return torch.softmax(m(x)[0][0, -1].float(), -1).cpu().numpy()
 
