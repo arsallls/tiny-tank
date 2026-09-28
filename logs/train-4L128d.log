@@ -1,0 +1,22 @@
+W0928 01:43:03.232000 7921 torch/_inductor/utils.py:1731] [0/0] Not enough SMs to use max_autotune_gemm mode
+vocab 32  train 14,407,200  val 1,600,800
+NVIDIA L4  torch.bfloat16
+params 0.86M
+eval 0: train 3.2227 | val 3.2299 nats | 11s | 11.083s/iter
+eval 100: train 1.8063 | val 1.8138 nats | 27s | 0.270s/iter
+eval 200: train 1.7634 | val 1.7652 nats | 29s | 0.147s/iter
+eval 300: train 1.7605 | val 1.7590 nats | 32s | 0.106s/iter
+eval 400: train 1.7518 | val 1.7563 nats | 34s | 0.085s/iter
+eval 500: train 1.7464 | val 1.7490 nats | 36s | 0.073s/iter
+eval 600: train 1.7514 | val 1.7529 nats | 39s | 0.065s/iter
+eval 700: train 1.7422 | val 1.7524 nats | 41s | 0.059s/iter
+eval 800: train 1.7486 | val 1.7395 nats | 43s | 0.054s/iter
+eval 900: train 1.7368 | val 1.7481 nats | 46s | 0.051s/iter
+eval 1000: train 1.7506 | val 1.7395 nats | 48s | 0.048s/iter
+eval 1100: train 1.7431 | val 1.7490 nats | 51s | 0.046s/iter
+eval 1200: train 1.7381 | val 1.7438 nats | 53s | 0.044s/iter
+eval 1300: train 1.7397 | val 1.7430 nats | 55s | 0.042s/iter
+eval 1400: train 1.7478 | val 1.7446 nats | 58s | 0.041s/iter
+early stop at 1400 (best val 1.7395)
+done: best val 1.7395 nats = 2.5095 bits/token  (58s)
+saved out/tank.pt

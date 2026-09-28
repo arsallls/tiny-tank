@@ -11,7 +11,7 @@ transformer plugs into the same probes later.
   python3 eval.py                      # n-gram baselines
   python3 eval.py --ckpt out/tank.pt   # + the transformer
 """
-import argparse, os, pickle
+import argparse, os, pickle, time
 from collections import defaultdict
 
 import numpy as np
@@ -153,7 +153,9 @@ def main(a):
 
     out = {}
     for order in a.orders:
+        t0 = time.time()
         m = NGram(order, len(vocab)).fit(data["train"])
+        print(f"fit {order}-gram in {time.time() - t0:.0f}s", flush=True)
         out[f"{order}-gram"] = report(f"{order}-gram", lambda c, _p, m=m: m.predict(c),
                                      data, stoi, fear_ids, order)
 
