@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiny Tank — a 336k-parameter fish</title>
+<meta name="description" content="A from-scratch transformer that learned to behave like a fish. Runs entirely in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f2eee1; --paper-2:#e9e2cc; --paper-3:#dcd3b7;
+  --water-a:#4a95bd; --water-b:#0e3550;
+  --ink:#2a2419; --ink-2:#5b5344; --ink-3:#7d7361;
+  --brass:#93691f; --coral:#a84a2a; --algae:#4d6f3a; --rust:#9c3a22;
+  --line:#d3c9ac;
+  --mono:'Space Mono',ui-monospace,monospace; --serif:'Space Grotesk',Georgia,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--mono);font-weight:300}
+body{
+  min-height:100vh;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -10%, #ece4c9 0%, transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E");
+}
+.wrap{max-width:1480px;margin:0 auto;padding:36px 16px 72px}
+
+header{margin-bottom:26px;text-align:center}
+h1{
+  margin:0;font-family:var(--serif);font-weight:400;
+  font-size:clamp(34px,4.4vw,56px);line-height:1;letter-spacing:-.02em;color:var(--ink);
+}
+h1 em{font-style:italic;color:var(--coral)}
+.kicker{
+  display:block;margin-bottom:9px;
+  font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-3);
+}
+.lede{max-width:none;margin:16px auto 0;text-align:center;
+  font-size:14px;line-height:1.7;color:var(--ink-2)}
+.lede b{color:var(--ink);font-weight:400}
+header::after{content:"";display:block;width:100%;height:1px;
+  background:var(--line);margin-top:22px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:26px;margin-top:28px}
+.grid>*{min-width:0}          /* a wide child must scroll, never stretch the column */
+@media(max-width:860px){
+  .grid{grid-template-columns:1fr}
+  /* centring reads well for two lines, badly for ten */
+  .lede{text-align:left;max-width:62ch}
+}
+
+.glass{
+  position:relative;border:10px solid #201a12;border-radius:4px;overflow:hidden;
+  background:linear-gradient(170deg,var(--water-a),var(--water-b));
+  aspect-ratio:16/10;
+  box-shadow:inset 0 0 90px rgba(6,30,45,.4), 0 22px 46px -30px rgba(40,30,15,.55), 0 1px 0 #4a3c26 inset;
+}
+.glass::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(112deg,rgba(255,255,255,.08) 0 14%,transparent 30%);
+}
+#tank{display:block;width:100%;height:100%}
+
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+button{
+  flex:1 1 150px;padding:10px 13px 11px;cursor:pointer;text-align:left;
+  font-family:var(--mono);color:var(--ink);
+  background:var(--paper-2);border:1px solid var(--line);border-radius:2px;
+  transition:border-color .18s, transform .06s, box-shadow .18s;
+}
+button span{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+button span b{font-weight:400;color:var(--coral)}
+button em{display:block;margin-top:4px;font-style:normal;font-size:10px;
+  letter-spacing:.02em;color:var(--ink-3);text-transform:none}
+button:hover{border-color:var(--coral);box-shadow:0 2px 8px -4px rgba(40,30,15,.4)}
+button:active{transform:translateY(1px)}
+button.off span b{color:var(--ink-3)}
+
+.panel{border:1px solid var(--line);border-radius:3px;background:var(--paper-2);padding:20px}
+.panel h2{
+  margin:0 0 16px;font-family:var(--mono);font-size:10px;font-weight:500;
+  letter-spacing:.24em;text-transform:uppercase;color:var(--ink-3);
+}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:9px 0;border-top:1px solid var(--line);font-size:12px}
+.row:first-of-type{border-top:0}
+.row span{color:var(--ink-3);letter-spacing:.08em}
+.row b{font-weight:400;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.doing{margin:14px 0 4px}
+.now{font-family:var(--serif);font-size:29px;line-height:1.15;
+  color:var(--coral);letter-spacing:.01em;min-height:34px;
+  transition:opacity .45s ease}
+.now.fade{opacity:.25}
+.rawtok{margin-top:7px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3)}
+.rawtok b{font-weight:400;color:var(--ink-2)}
+.bar{height:4px;background:var(--line);border-radius:3px;margin:8px 0 2px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--brass);border-radius:3px;
+  transition:width .3s linear}
+h2.sub em.hdr{float:right;font-style:normal;letter-spacing:.12em;color:var(--ink-3);
+  text-transform:none;font-size:9px}
+
+#tracebox{margin-top:20px;border-top:1px solid var(--line);padding-top:14px}
+#tracebox summary{cursor:pointer;font-size:10px;font-weight:500;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--ink-3);list-style:none}
+#tracebox summary::-webkit-details-marker{display:none}
+#tracebox summary::before{content:"▸ ";color:var(--coral)}
+#tracebox[open] summary::before{content:"▾ "}
+#tracebox summary:hover{color:var(--coral)}
+.tracekey{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 10px;font-size:9px;
+  letter-spacing:.1em;text-transform:uppercase}
+.tracekey .k::before{content:"";display:inline-block;width:6px;height:6px;
+  border-radius:50%;margin-right:5px;background:currentColor;vertical-align:middle}
+#trace{font-size:10.5px;line-height:2;max-height:230px;overflow-y:auto;
+  overflow-wrap:break-word}
+#trace span{margin-right:7px;white-space:nowrap}
+.tr-you{color:var(--coral);font-weight:700}
+.tr-world{color:var(--brass)}
+.tr-mood{color:var(--algae)}
+.tr-eat{color:#8a5a12}
+.tr-move{color:var(--ink-3)}
+#trace .tr-you::after{content:"←you";margin-left:3px;font-size:8px;
+  vertical-align:super;letter-spacing:.06em}
+
+h2.sub{margin:22px 0 12px}
+.gauge{display:flex;align-items:center;gap:10px;margin:0 0 9px;font-size:11.5px}
+.gauge span{width:52px;color:var(--ink-3);letter-spacing:.06em}
+.gauge i{flex:1;height:5px;background:var(--line);border-radius:3px;overflow:hidden}
+.gauge i b{display:block;height:100%;width:0;border-radius:3px;background:var(--brass);
+  transition:width .4s linear}
+.gauge em{width:34px;text-align:right;font-style:normal;color:var(--ink-2);
+  font-variant-numeric:tabular-nums}
+.fine{margin:12px 0 0;font-size:10.5px;line-height:1.7;color:var(--ink-3)}
+.fine b{color:var(--ink-2);font-weight:400}
+.gauge.unknown{opacity:.4}
+.gauge.unknown i b{background:var(--ink-3)}
+#thoughts{list-style:none;margin:0;padding:0;font-size:11.5px}
+#thoughts li{display:flex;justify-content:space-between;padding:6px 0;
+  border-top:1px solid var(--line)}
+#thoughts li:first-child{border-top:0}
+#thoughts li b{font-weight:400;color:var(--ink-3);font-variant-numeric:tabular-nums}
+#thoughts li.empty{color:var(--ink-3)}
+#paritybadge{display:inline-flex;align-items:center;gap:7px}
+#paritybadge::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink-3)}
+#paritybadge.ok::before{background:var(--algae);box-shadow:0 0 9px var(--algae)}
+#paritybadge.bad::before{background:var(--rust);box-shadow:0 0 9px var(--rust)}
+
+#status{padding:18px;font-size:12px;color:var(--ink-3);letter-spacing:.1em}
+#status.bad{color:var(--rust)}
+
+.notes{margin-top:40px;padding-top:22px;border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:22px}
+.notes div{font-size:12px;line-height:1.75;color:var(--ink-2)}
+.notes h3{margin:0 0 7px;font-size:10px;font-weight:500;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--coral)}
+.notes b{color:var(--ink);font-weight:400}
+a{color:var(--brass);text-decoration:none;border-bottom:1px solid transparent}
+a:hover{border-bottom-color:var(--brass)}
+
+body>.wrap>*{opacity:0;animation:rise .7s cubic-bezier(.2,.7,.3,1) forwards}
+body>.wrap>header{animation-delay:.02s}
+body>.wrap>.grid{animation-delay:.14s}
+body>.wrap>.notes{animation-delay:.26s}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Specimen 001 · under observation</div>
+  <h1>Tiny&nbsp;<em>Tank</em></h1>
+  <p class="lede">
+    A <b>336,000-parameter</b> transformer, written from scratch, that learned to behave
+    like a fish. It emits one behavior token every <b>0.4 seconds</b> — motion, sounds,
+    moods — and the canvas just renders them. <b>The whole model runs in this tab</b>:
+    no server, no inference runtime, a hand-written forward pass in 189 lines of
+    JavaScript.
+  </p>
+</header>
+
+<div class="grid">
+  <div>
+    <div class="glass">
+      <canvas id="tank"></canvas>
+    </div>
+    <div class="controls">
+      <button id="feed"><span>Feed</span><em>drop pellets in</em></button>
+      <button id="tap"><span>Tap glass</span><em>startle it, repeatedly</em></button>
+      <button id="hand"><span>Shadow</span><em>a hand looms overhead</em></button>
+      <button id="light"><span>Lights · <b id="lightstate">on</b></span><em>day / night</em></button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>What the fish is thinking</h2>
+    <div id="status">loading weights…</div>
+
+    <div class="doing">
+      <div class="now" id="tok">—</div>
+      <div class="rawtok">last token <b id="rawtok">—</b></div>
+    </div>
+
+    <h2 class="sub">How it feels</h2>
+    <div class="gauge" id="row-hunger"><span>hunger</span><i><b id="g-hunger"></b></i><em id="v-hunger">0%</em></div>
+    <div class="gauge"><span>fear</span><i><b id="g-fear"></b></i><em id="v-fear">0%</em></div>
+    <div class="gauge"><span>drowsy</span><i><b id="g-drowsy"></b></i><em id="v-drowsy">0%</em></div>
+    <p class="fine">The model stores no hunger, fear or sleep variable. These are read
+    out of its own next-token distribution, and correlate <b>r = 0.84 / 0.88 / 0.91</b>
+    with the simulator's real hidden values. Hunger greys out while it sleeps — a
+    sleeping fish shows no hunger behaviour, so there is nothing to read.</p>
+
+    <h2 class="sub">Mood changes <em class="hdr">time since load</em></h2>
+    <ul id="thoughts"><li class="empty">nothing yet</li></ul>
+
+    <h2 class="sub">Model</h2>
+    <div class="row"><span>memory used</span><b id="ctx">0 / 511</b></div>
+    <div class="bar"><i id="ctxbar"></i></div>
+    <p class="fine">How full its 511-token memory is. Once that fills, the oldest
+    moment drops off — it can remember about 3½ minutes.</p>
+    <div class="row"><span>age</span><b id="ticks">0</b></div>
+    <div class="row"><span>parameters</span><b id="nparams">—</b></div>
+    <div class="row"><span>torch ↔ js</span><b id="paritybadge"><span id="parity">—</span></b></div>
+
+    <details id="tracebox">
+      <summary>Model trace</summary>
+      <div class="tracekey">
+        <span class="k tr-you">you</span><span class="k tr-world">the tank</span><span class="k tr-mood">mood</span><span class="k tr-eat">feeding</span><span class="k tr-move">motion</span>
+      </div>
+      <div id="trace"></div>
+    </details>
+  </div>
+</div>
+
+<div class="notes">
+  <div>
+    <h3>Tap it repeatedly</h3>
+    It startles the first time and stops caring by the tenth. That <b>habituation</b>
+    needs ~300 ticks of memory — a 5-gram structurally cannot do it, and that gap is
+    the reason this is a transformer and not a state machine.
+  </div>
+  <div>
+    <h3>Then starve it</h3>
+    Wait without feeding and it turns <b>hungry</b>, scanning the surface. Feed it when
+    it's full and it only glances over. Nothing stores a hunger variable — the model
+    infers it from its own recent behavior.
+  </div>
+  <div>
+    <h3>How good is it</h3>
+    <b>2.6087 bits/token</b> against a <b>2.5616</b> irreducible floor, measured from the
+    simulator that generated the training data. It closed 84.5% of the gap between a
+    5-gram baseline and the entropy of the process itself.
+  </div>
+  <div>
+    <h3>Source</h3>
+    Simulator, model, training, and this page:
+    <a href="https://github.com/arsallls/tiny-tank">github.com/arsallls/tiny-tank</a>.
+    The dot above is live — it re-runs the PyTorch parity fixture on load.
+  </div>
+</div>
+
+</div>
+<script type="module" src="tank.js"></script>
+</body>
+</html>

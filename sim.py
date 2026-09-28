@@ -30,8 +30,11 @@ STOI = {t: i for i, t in enumerate(VOCAB)}
 V = len(VOCAB)
 
 TAP_WINDOW = 300        # ticks a tap still counts toward habituation
-DAY = 4000              # circadian period
 P_STIM = 0.007          # per-tick chance any stimulus arrives
+DEBT_RATE = 0.0012      # sleep debt accrued per lit tick
+NAP_RATE = 0.0035       # discharged per tick while dark or napping
+HUNGER_RATE = 0.0030    # per tick; ~80s from fed to HUNGRY at 0.4s/tick
+DART_COST = 0.015       # a dart burns roughly five ticks of energy
 
 
 def _menu(**w):
@@ -61,14 +64,19 @@ M_BORED = _menu(CIRCLE=4, TURN=3, BUBBLE=1.5, DRIFT_L=1.5, DRIFT_R=1.5)
 
 def _stim(light_on):
     a = np.zeros(V)
-    a[STOI["<FOOD>"]] = P_STIM * 0.45
-    a[STOI["<TAP>"]] = P_STIM * 0.25
-    a[STOI["<HAND>"]] = P_STIM * 0.15
-    a[STOI["<LIGHT_OFF>" if light_on else "<LIGHT_ON>"]] = P_STIM * 0.15
+    a[STOI["<FOOD>"]] = P_STIM * 0.62
+    a[STOI["<TAP>"]] = P_STIM * 0.22
+    a[STOI["<HAND>"]] = P_STIM * 0.12
+    # asymmetric, so the tank is lit most of the time and darkness stays an
+    # event: a symmetric toggle left it dark half the time and drowsy far too much
+    a[STOI["<LIGHT_OFF>"] if light_on else STOI["<LIGHT_ON>"]] = \
+        P_STIM * (0.08 if light_on else 0.55)
     return a
 
 
 S_LIGHT_ON, S_LIGHT_OFF = _stim(True), _stim(False)
+REST_ON = 1.0 - float(S_LIGHT_ON.sum())
+REST_OFF = 1.0 - float(S_LIGHT_OFF.sum())
 S_BURST = np.zeros(V)
 S_BURST[STOI["<TAP>"]] = 0.6
 
@@ -76,14 +84,16 @@ S_BURST[STOI["<TAP>"]] = 0.6
 class Tank:
     def __init__(self, rng):
         self.rng = rng
-        self.hunger = rng.random() * 0.3
+        self.hunger = rng.random() * 0.9
         self.startle = 0.0
         self.boredom = 0
         self.light = True
         self.food = 0                        # ticks of food still floating
         self.burst = 0                       # remaining ticks of a tap burst
         self.taps = deque()
-        self.t = int(rng.integers(0, DAY))   # start anywhere in the cycle
+        self.t = 0
+        self.debt = rng.random() * 0.9
+        self.napping = False
         self.mood = None
 
     @property
@@ -95,7 +105,9 @@ class Tank:
         return self.startle * math.exp(-0.15 * len(self.taps))
 
     def sleepy(self):
-        return math.sin(2 * math.pi * self.t / DAY) < -0.7
+        # darkness always, plus naps forced by sleep debt. Replaces a circadian
+        # sine the viewer could not influence: now the light switch drives it.
+        return (not self.light) or self.napping
 
     def current_mood(self):
         if self.fear > 0.50:
@@ -104,7 +116,7 @@ class Tank:
             return "SLEEPY"
         if self.hunger > 0.6:
             return "HUNGRY"
-        if self.boredom > 250:
+        if self.boredom > 170:
             return "BORED"
         if self.hunger < 0.15:
             return "CONTENT"
@@ -120,11 +132,15 @@ class Tank:
             if self.hunger > 0.08:
                 return M_PECK
             return M_FULL
-        if self.hunger > 0.6:
-            return M_HUNGRY
+        # sleep outranks hunger, matching current_mood(). The other order let a
+        # drowsy-but-hungry fish announce SLEEPY while foraging, which masked
+        # roughly half of all drowsiness in the behaviour the model sees.
+        # Food still comes first: dropping food wakes it, so feeding always works.
         if not self.light or self.sleepy():
             return M_SLEEPY
-        if self.boredom > 250:
+        if self.hunger > 0.6:
+            return M_HUNGRY
+        if self.boredom > 170:
             return M_BORED
         return M_IDLE
 
@@ -135,7 +151,7 @@ class Tank:
             rest = 0.4
         else:
             p = (S_LIGHT_ON if self.light else S_LIGHT_OFF).copy()
-            rest = 1.0 - P_STIM
+            rest = REST_ON if self.light else REST_OFF
 
         m = self.current_mood()
         if m is not None and m != self.mood:
@@ -167,17 +183,29 @@ class Tank:
             return                     # a stimulus tick does not latch mood
         self.mood = self.current_mood()
         if tok == "CHOMP":
-            self.hunger = max(0.0, self.hunger - 0.25)
+            self.hunger = max(0.0, self.hunger - 0.40)
             self.food = max(0, self.food - 22)
+        elif tok.startswith("DART"):
+            self.hunger = min(1.0, self.hunger + DART_COST)
 
     def tick(self):
         """Advance time and decay. Call before dist()."""
         self.t += 1
         while self.taps and self.t - self.taps[0] > TAP_WINDOW:
             self.taps.popleft()
-        self.hunger = min(1.0, self.hunger + 0.0012)
+        self.hunger = min(1.0, self.hunger + HUNGER_RATE)
         self.startle *= 0.97
         self.boredom += 1
+        # a tired fish naps even with the lights on, then wakes rested - without
+        # that it would simply stay drowsy for the rest of every lit stretch
+        if self.napping or not self.light:
+            self.debt = max(0.0, self.debt - NAP_RATE)
+            if self.napping and self.debt <= 0.3:
+                self.napping = False
+        else:
+            self.debt = min(1.6, self.debt + DEBT_RATE)
+            if self.debt > 1.0:
+                self.napping = True
         if self.food:
             self.food -= 1
 

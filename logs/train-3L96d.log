@@ -1,0 +1,16 @@
+vocab 32  train 14,407,200  val 1,600,800
+cpu
+params 0.34M
+eval 0: train 3.2838 | val 3.2839 nats | 9s | 8.858s/iter
+eval 150: train 1.8661 | val 1.8731 nats | 69s | 0.457s/iter
+eval 300: train 1.8341 | val 1.8411 nats | 137s | 0.457s/iter
+eval 450: train 1.8257 | val 1.8323 nats | 213s | 0.474s/iter
+eval 600: train 1.8197 | val 1.8249 nats | 290s | 0.483s/iter
+eval 750: train 1.8190 | val 1.8159 nats | 363s | 0.484s/iter
+eval 900: train 1.8162 | val 1.8107 nats | 436s | 0.485s/iter
+eval 1050: train 1.8131 | val 1.8159 nats | 505s | 0.481s/iter
+eval 1200: train 1.8074 | val 1.8139 nats | 577s | 0.481s/iter
+eval 1350: train 1.8120 | val 1.8113 nats | 650s | 0.482s/iter
+eval 1500: train 1.8127 | val 1.8077 nats | 720s | 0.480s/iter
+done: best val 1.8077 nats = 2.6079 bits/token  (720s)
+saved out/m/tank.pt

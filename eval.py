@@ -121,7 +121,10 @@ def probe_hunger(predict, data, stoi, n_per=400, seed=0):
         w = data[max(0, i - 800):i]
         last = np.flatnonzero(w == chomp)
         gap = 999 if len(last) == 0 else len(w) - 1 - int(last[-1])
-        b = 1 if gap < 100 else (2 if gap < 250 else (3 if gap < 500 else 4))
+        # buckets track the sim's timescale: hunger now saturates ~200 ticks
+        # after a meal, so the old <100/100-250/250-500/500+ split measured the
+        # same fully-hungry fish in its top three bins
+        b = 1 if gap < 40 else (2 if gap < 90 else (3 if gap < 170 else 4))
         if len(buckets[b]) >= n_per:
             continue
         p = predict(data[i - 512:i + 1].tolist(), int(i) + 1)
@@ -132,7 +135,7 @@ def probe_hunger(predict, data, stoi, n_per=400, seed=0):
 
 
 HAB_LBL = {1: "1 tap", 2: "2-3", 3: "4-8", 4: "9-15", 5: "16+"}
-HUN_LBL = {1: "<100", 2: "100-250", 3: "250-500", 4: "500+"}
+HUN_LBL = {1: "<40", 2: "40-90", 3: "90-170", 4: "170+"}
 
 
 def report(name, predict, data, stoi, fear_ids, order):
