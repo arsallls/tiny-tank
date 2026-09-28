@@ -198,18 +198,23 @@ def oracle(a):
     """
     import eval as ev
     rng = np.random.default_rng(a.seed)
-    n_val = max(1, int(a.episodes * 0.1))
-    toks, dists = [], []
+    # a subsample is enough: NLL and the probe buckets are estimates of the same
+    # population quantity eval.py estimates, and the full val split would need
+    # ~400MB of dense distributions
+    n_val = min(a.oracle_episodes, max(1, int(a.episodes * 0.1)))
+    N = n_val * (a.ep_len + 1)
+    data = np.empty(N, dtype=np.uint16)
+    D = np.empty((N, V), dtype=np.float32)         # preallocated, not a list
+    j = 0
     for _ in range(n_val):
         tk = Tank(rng)
-        toks.append(STOI["<BOS>"])
-        dists.append(np.full(V, 1.0 / V))          # <BOS> is unconditioned
+        data[j], D[j] = STOI["<BOS>"], 1.0 / V     # <BOS> is unconditioned
+        j += 1
         for _ in range(a.ep_len):
             tok, p = tk.step(want_dist=True)
-            toks.append(STOI[tok])
-            dists.append(p / p.sum())
-    data = np.array(toks, dtype=np.uint16)
-    D = np.asarray(dists, dtype=np.float32)
+            data[j], D[j] = STOI[tok], p / p.sum()
+            j += 1
+    print(f"oracle over {n_val} episodes, {N:,} positions")
 
     bits = -np.log2(np.maximum(D[np.arange(len(data)), data], 1e-12))[512:].mean()
     predict = lambda _ctx, pos: D[pos]             # D[j] generated token j
@@ -283,6 +288,7 @@ if __name__ == "__main__":
     p.add_argument("--episodes", type=int, default=8000)
     p.add_argument("--ep-len", type=int, default=2000)
     p.add_argument("--seed", type=int, default=1337)
+    p.add_argument("--oracle-episodes", type=int, default=400)
     p.add_argument("--out", default="data")
     a = p.parse_args()
     if a.check:

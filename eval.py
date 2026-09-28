@@ -159,10 +159,10 @@ def main(a):
 
     if a.ckpt:
         import torch
-        from model import GPT
+        from model import GPT, GPTConfig
         dev = "cuda" if torch.cuda.is_available() else "cpu"
         ck = torch.load(a.ckpt, map_location=dev)
-        m = GPT(ck["cfg"]).to(dev).eval()
+        m = GPT(GPTConfig(**ck["cfg"])).to(dev).eval()
         m.load_state_dict(ck["model"])
 
         @torch.no_grad()
